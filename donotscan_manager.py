@@ -174,13 +174,14 @@ class CLI(cmd.Cmd):
   rules   = Rules('sqlite:////tmp/test.db', debug=True)
   
   def __print_rules(self, rule_list):
-    print '%4s %31s %15s %10s %29s' % ('Id', 'Rule', 'Ticket', 'Expiration', 'Requestor')
-    print '%4s %31s %15s %10s %29s' % ('-' * 4, '-' * 31, '-' * 15, '-' * 10, '-' * 29)
+    st = {True: 'Active', False: 'Inactive'}
+    print '%4s %31s %15s %10s %29s %10s' % ('Id', 'Rule', 'Ticket', 'Expiration', 'Requestor', 'Status')
+    print '%4s %31s %15s %10s %29s %10s' % ('-' * 4, '-' * 31, '-' * 15, '-' * 10, '-' * 29, '-' * 10)
     for rule in rule_list:
       if rule.permanent:
-        print '%04d %31s %15s %10s %s' % (rule.id, rule.rule, rule.ticket, 'PERMANENT', rule.name)
+        print '%04d %31s %15s %10s %29s %10s' % (rule.id, rule.rule, rule.ticket, 'PERMANENT', rule.name)
       else:
-        print '%04d %31s %15s %10s %s' % (rule.id, rule.rule, rule.ticket, rule.expiration, rule.name)
+        print '%04d %31s %15s %10s %29s %10s' % (rule.id, rule.rule, rule.ticket, rule.expiration, rule.name)
   
   def do_list(self, s):
     self.__print_rules(self.rules.list())

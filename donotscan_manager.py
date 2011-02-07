@@ -6,10 +6,13 @@ from sqlalchemy                 import Table, Column, Integer, String, \
                                        Boolean, create_engine, MetaData, and_
 from sqlalchemy.orm             import relation, backref, sessionmaker
 import datetime
+import smtplib
 import cmd
 import sys
+import os
+import ConfigParser
 
-version   = 'POCb1'
+version   = 'POCb2'
 Base      = declarative_base()
 motd      = '''
 DoNotScan Manager Version %s
@@ -17,6 +20,46 @@ DoNotScan Manager Version %s
 POC Alpha Build.  No Information.
 ''' % version
 
+def get_config(self):
+  '''
+  Retrieves the configuration file and returns a ConfigParser object.
+  '''
+  configfile = '/'.join(os.path.abspath(__file__).split('/')[:-1]) + '/config.ini'
+  config = ConfigParser.ConfigParser()
+  config.read(configfile)
+  return config
+
+
+def config_param(self, stanza, param):
+  '''
+  Returns a Configuration Parameter stored in the config file
+  '''
+  config  = get_config()
+  return config.get(stanza, param)
+  
+
+def get_dbcon(self):
+  '''
+  Checks the database configuration
+  '''
+  config    = get_config()
+  db_type   = config.get('Database', 'database_type')
+  if db_type == 'sqlite':
+    db_uri  = config.get('Database', 'location')
+    c_name  = 'sqlite:///%s' % db_uri
+  else:
+    db_user   = config.get('Database', 'username')
+    db_host   = config.get('Database', 'hostname')
+    db_port   = config.get('Database', 'port_number')
+    db_name   = config.get('Database', 'database')
+    db_pass   = config.get('Database', 'password')
+    if db_port is not '':
+      c_name  = '%s://%s:%s@%s:%s/%s' % (db_type, db_user, db_pass, db_host, db_port, db_name)
+    else:
+      c_name  = '%s://%s:%s@%s/%s' % (db_type, db_user, db_pass, db_host, db_name)
+  return c_name
+  
+  
 
 class Rule(Base):
   '''
@@ -113,6 +156,10 @@ class Activity(Base):
 
 
 class Rules(object):
+  from_addr = config_param('Email', 'from_address')
+  smtp_serv = config_param('Email', 'smtp_server')
+  smtp_port = int(config_param('Email', 'smtp_port'))
+  
   '''
   This is the 'middleware' layer of the application.  This will talk to the
   database and provide all of the functions needed for any front-end needed.
@@ -141,6 +188,22 @@ class Rules(object):
           self.deactivate(rule.id)
     return donotscan
   
+  def __send_email(self, to_addr, subject, message):
+    
+    msg = '''From: Do Not Scan Notifications <%s>
+    To: %s
+    Subject: %s
+    
+    %s
+    ''' % (self.from_addr, to_addr, subject, message)
+    try:
+      mail  = smtplib.SMTP(self.smtp_serv, self.smtp_port)
+      mail.sendmail(self.from_addr, [self.to_addr,], msg)
+      return 'sent'
+    except:
+      return 'error'
+    
+  
   def rule_audit(self):
     '''
     This is primarially used during the yearly true-up.  All active rules
@@ -167,9 +230,22 @@ class Rules(object):
     not request that the rule be renewed, then the rule will no longer be
     active.
     '''
-    # Notify the user that their rule has expired.  Also attach any relevent
-    # information.
-    pass
+    rule  = self.get(rule_id)
+    
+    msg   = '''
+    %s,
+    
+    This is an automated response set to inform you that the do-not-scan rule
+    listed below has expired and will no longer be excluded.  If you need to
+    this exclusion to continue, please notify %s immediately in order to have
+    this rule re-instated.
+    
+    Ticket Number : %s
+      Application : %s
+           Reason : %s
+             Rule : %s
+    ''' % (rule.name, self.from_addr, rule.ticket, rule.application, rule.reason, rule.rule)
+    self.__send_email(rule.email, 'Scan Exclusion Expiration Notification', msg)
   
   def add(self, obj):
     '''
@@ -179,6 +255,16 @@ class Rules(object):
     session.add(obj)
     session.commit()
     session.close()
+  
+  def get(self, rule_id):
+    '''
+    Returns the specified rule.
+    '''
+    session = self.Session()
+    query   = session.query(Rule).filter(Rule.id=rule_id)
+    x       = query.first()
+    session.close()
+    return x
   
   def search(self, **args):
     '''
@@ -243,7 +329,7 @@ class Rules(object):
 class CLI(cmd.Cmd):
   intro   = motd
   prompt  = 'DoNotScan> '
-  rules   = Rules('sqlite:////tmp/test.db', debug=True)
+  rules   = Rules(get_dbcon(), bool(config_param('General', 'debugging')))
   
   def __print_rules(self, rule_list):
     st = {True: 'Active', False: 'Inactive'}
